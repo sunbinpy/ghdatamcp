@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ghdata-mcp"
+version = "1.0.0"
+description = "股海罗盘 GH-Data MCP Server — A股全维度数据引擎（16个工具）"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+    {name = "sunbinpy", email = "sunbinpy@users.noreply.github.com"}
+]
+keywords = ["mcp", "stock", "a-share", "eastmoney", "finance", "qwenpaw"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+
+dependencies = [
+    "mcp[cli]>=1.0.0",
+    "matplotlib>=3.8.0",
+    "numpy>=1.24.0",
+    "playwright>=1.40.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/sunbinpy/ghdatamcp"
+Repository = "https://github.com/sunbinpy/ghdatamcp"
+Documentation = "https://github.com/sunbinpy/ghdatamcp#readme"
+
+[project.scripts]
+ghdata-mcp = "ghdata_mcp.server:main"
+
+[tool.setuptools.packages.find]
+include = ["ghdata_mcp*"]
