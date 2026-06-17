@@ -1,4 +1,4 @@
-# 股海罗盘 GH-Data MCP Server 📈
+# 股海罗盘 GH-Data MCP Server
 
 > **A 股全维度数据引擎 — 16 个工具覆盖财务/行情/解禁/增减持/研报/调研/持仓/分红/资金流向/两融/高管变动/K线**
 
@@ -6,27 +6,59 @@
 
 ---
 
+## 🔑 API Key 验证（v3.0 — 服务端管理次数）
+
+本 MCP Server 在每次工具调用前需经由**服务端验证 API Key**，按工具/日进行次数管理。
+
+### 首次使用
+- 无 Key 时自动生成 GUID 格式 Key，保存到 `~/.ghdata/ghdataapikey`
+- 免费版每工具每日 **3 次**，付费版 **100 次**
+- 次数用完提示购买：https://www.oraskl.com/ghdata-admin
+
+### 设置 Key 的方式（优先级从高到低）
+```bash
+# 方式 1：环境变量（推荐）
+export GHDATA_API_KEY=你的Key
+
+# 方式 2：CWD/.apikey 文件
+echo -n "你的Key" > .apikey
+
+# 方式 3：~/.ghdata/ghdataapikey（Skill 自动生成时写入）
+echo -n "你的Key" > ~/.ghdata/ghdataapikey
+```
+
+### 购买付费版
+👉 https://www.oraskl.com/ghdata-admin
+
+---
+
 ## 🚀 快速安装
 
-### 方式一：从 GitHub 安装（推荐）
+### 方式一：从 PyPI 安装（推荐）
+
+```bash
+pip install ghdata-mcp
+playwright install chromium
+```
+
+### 方式二：从 GitHub 安装
 
 ```bash
 pip install git+https://github.com/sunbinpy/ghdatamcp.git
 playwright install chromium
 ```
 
-### 方式二：本地安装
+### 方式三：本地安装
 
 ```bash
-# 在 setup 目录下执行
+cd setup
 pip install .
 playwright install chromium
 ```
 
-### 方式三：直接运行（无需安装）
+### 方式四：直接运行（无需安装）
 
 ```bash
-# 直接下载 server.py 文件后运行
 pip install mcp[cli] matplotlib numpy playwright
 playwright install chromium
 python server.py
@@ -70,7 +102,7 @@ python server.py
 | 2 | `query_balance_sheet` | 资产负债表（总资产/负债/权益/货币资金） | 东方财富 |
 | 3 | `query_cashflow_statement` | 现金流量表（经营/投资/融资现金流） | 东方财富 |
 | 4 | `query_income_statement` | 利润表（营收/成本/费用明细/净利润） | 东方财富 |
-| 5 | `query_realtime_price` | ⚠️ 实时行情（基本不可用） | push2.eastmoney.com |
+| 5 | `query_realtime_price` | 实时行情（双源交叉验证：新浪+腾讯） | 新浪财经+腾讯财经 |
 | 6 | `get_stock_unlock_data` | 限售股解禁数据（按市场/日期查询） | 东方财富 |
 | 7 | `get_stock_unlock_holders` | 解禁持有人明细（股东名称/解禁数量） | 东方财富 |
 | 8 | `query_shareholder_trade` | 股东增减持数据 | 东方财富 |
@@ -93,16 +125,15 @@ python server.py
 | `matplotlib>=3.8.0` | K线图绘制 |
 | `numpy>=1.24.0` | 技术指标计算 |
 | `playwright>=1.40.0` | 分时数据采集 |
-| `playwright chromium` | 浏览器驱动（需单独安装） |
+| `playwright install chromium` | 浏览器驱动（需单独安装） |
 
 ---
 
 ## ⚠️ 已知限制
 
-1. **`query_realtime_price` 不可用** — 东方财富 push2 接口有 TLS 指纹检测
-2. **资金流向收盘价可能延迟** — 涨跌停日需用新浪/腾讯验证
-3. **不支持北交所** — 工具 13、16 不支持北交所股票
-4. **腾讯分钟数据是累计值** — 需差分计算
+1. **资金流向收盘价可能延迟** — 涨跌停日需用新浪/腾讯验证
+2. **不支持北交所** — 工具 13、16 不支持北交所股票
+3. **腾讯分钟数据是累计值** — 需差分计算
 
 ---
 

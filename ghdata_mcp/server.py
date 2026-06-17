@@ -25,7 +25,7 @@
 {
   "gh-data": {
     "command": "python",
-    "args": ["E:\\GuPiao\\agent\\ghdata\\mcpserver\\gh_data_mcp.py"],
+    "args": ["-m", "ghdata_mcp"],
     "env": {}
   }
 }
@@ -33,6 +33,8 @@
 
 import json
 import time
+import os
+import sys
 import urllib.request
 import urllib.parse
 import threading
@@ -75,6 +77,106 @@ def _rate_limit_decorator(func):
             _last_call_time = time.time()
             return func(*args, **kwargs)
     return wrapper
+
+# ═══════════════════════════════════════════════════
+# API Key 验证（服务端管理次数，每次实时读取 Key）
+# ═══════════════════════════════════════════════════
+
+PURCHASE_URL = "https://www.oraskl.com/ghdata-admin"
+VERIFY_GH_DATA_URL = (
+    "https://tpis.smartsousou.com/TPAccountInfo/api/SkillAccount/VerifyGHData"
+)
+
+_MCP_PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+_MCP_USER_HOME = os.path.expanduser("~")
+
+
+def _get_api_key() -> str:
+    """获取 API Key（每次实时读取，确保 Skill 写入的最新 Key 能被 MCP 用到）
+
+    检索顺序：环境变量 → 项目根 .apikey → CWD .apikey → ~/.ghdata/ghdataapikey
+    """
+    key = os.environ.get("GHDATA_API_KEY", "")
+    if key:
+        return key.strip()
+    for path in [
+        os.path.join(_MCP_PROJECT_ROOT, ".apikey"),
+        os.path.join(os.getcwd(), ".apikey"),
+        os.path.join(_MCP_USER_HOME, ".ghdata", "ghdataapikey"),
+    ]:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                return f.read().strip()
+    return ""
+
+
+def _display_key(key: str) -> str:
+    """脱敏显示 Key（前8后4）"""
+    return key[:8] + "..." + key[-4:] if len(key) > 12 else key
+
+
+def _consume_tool(tool_name: str, dry_run: bool = False) -> dict:
+    """调用服务端验证 + 扣减次数"""
+    api_key = _get_api_key()
+    if not api_key:
+        return {"success": False, "allowed": False,
+                "error": f"未设置 API Key。请在 ~/.ghdata/ghdataapikey 中配置\n购买: {PURCHASE_URL}"}
+    payload = json.dumps({
+        "mSkillKey": api_key, "mSoftSystemTag": "GHData",
+        "toolName": tool_name, "dryRun": dry_run
+    }).encode()
+    req = urllib.request.Request(
+        VERIFY_GH_DATA_URL, data=payload,
+        headers={"Content-Type": "application/json"}, method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        return {"success": False, "allowed": False, "error": f"服务端错误: HTTP {e.code}"}
+    except urllib.error.URLError as e:
+        return {"success": False, "allowed": False, "error": f"网络错误: {e.reason}"}
+
+
+def auth_required(func):
+    """API Key 验证装饰器：每次工具调用前检查服务端配额"""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        tool_name = func.__name__
+        api_key = _get_api_key()
+        result = _consume_tool(tool_name, dry_run=False)
+
+        if not result.get("allowed", False):
+            used = result.get("usedToday", "?")
+            limit = result.get("dailyLimit", "?")
+            err = result.get("error", "调用被拒绝")
+            is_active = result.get("isActiveKey", False)
+
+            if not api_key:
+                return (f"❌ 未设置 API Key\n"
+                        f"   请设置环境变量 GHDATA_API_KEY\n"
+                        f"   或在 ~/.ghdata/ghdataapikey 中配置 API Key\n"
+                        f"   购买地址: {PURCHASE_URL}")
+            elif not is_active and not result.get("success", True):
+                return (f"❌ API Key 无效\n"
+                        f"   原因: {err}\n"
+                        f"   Key: {_display_key(api_key)}\n"
+                        f"   请检查 Key 是否正确，或前往购买: {PURCHASE_URL}")
+            elif str(used) >= str(limit):
+                return (f"❌ 今日使用次数已用完\n"
+                        f"   工具: {tool_name}\n"
+                        f"   已用: {used}/{limit} 次\n"
+                        f"   Key: {_display_key(api_key)}\n"
+                        f"   请明日再试，或升级额度: {PURCHASE_URL}")
+            else:
+                return (f"❌ 调用被拒绝\n"
+                        f"   原因: {err}\n"
+                        f"   今日已用: {used}/{limit} 次\n"
+                        f"   Key: {_display_key(api_key)}\n"
+                        f"   购买地址: {PURCHASE_URL}")
+        return func(*args, **kwargs)
+    return wrapper
+
 
 # ═══════════════════════════════════════════════════
 # 财报数据 API（数据中心）
@@ -128,7 +230,41 @@ try:
 except ImportError:
     async_playwright = None
 
-_EDGE_PATH = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+def _find_browser() -> str:
+    """自动查找系统中可用的 Edge/Chromium/Chrome 浏览器路径（跨平台）"""
+    import shutil
+    for exe in ["msedge", "microsoft-edge", "chromium", "chromium-browser",
+                 "google-chrome", "google-chrome-stable", "chrome"]:
+        path = shutil.which(exe)
+        if path:
+            return path
+    if os.name == "nt":
+        for p in [
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        ]:
+            if os.path.exists(p):
+                return p
+    elif sys.platform == "darwin":
+        for p in [
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        ]:
+            if os.path.exists(p):
+                return p
+    elif sys.platform.startswith("linux"):
+        for p in [
+            "/usr/bin/microsoft-edge", "/usr/bin/microsoft-edge-stable",
+            "/usr/bin/google-chrome", "/usr/bin/google-chrome-stable",
+            "/snap/bin/chromium",
+        ]:
+            if os.path.exists(p):
+                return p
+    return ""
+
+_EDGE_PATH = _find_browser()
 _edge_proc: subprocess.Popen | None = None
 _cdp_port: int = 0
 
@@ -449,6 +585,7 @@ def _build_push2_url(base: str, secid: str, params: dict) -> str:
 # ═══════════════════════════════════════════════════
 
 @mcp.tool()
+@auth_required
 @_rate_limit_decorator
 def query_financial_report(code: str, page_size: int = 5, page_number: int = 1) -> str:
     """
@@ -484,6 +621,7 @@ def query_financial_report(code: str, page_size: int = 5, page_number: int = 1) 
 # ═══════════════════════════════════════════════════
 
 @mcp.tool()
+@auth_required
 @_rate_limit_decorator
 def query_balance_sheet(code: str, page_size: int = 5, page_number: int = 1) -> str:
     """
@@ -527,6 +665,7 @@ def query_balance_sheet(code: str, page_size: int = 5, page_number: int = 1) -> 
 # ═══════════════════════════════════════════════════
 
 @mcp.tool()
+@auth_required
 @_rate_limit_decorator
 def query_cashflow_statement(code: str, page_size: int = 5, page_number: int = 1) -> str:
     """
@@ -568,6 +707,7 @@ def query_cashflow_statement(code: str, page_size: int = 5, page_number: int = 1
 # ═══════════════════════════════════════════════════
 
 @mcp.tool()
+@auth_required
 @_rate_limit_decorator
 def query_income_statement(code: str, page_size: int = 5, page_number: int = 1) -> str:
     """
@@ -612,6 +752,7 @@ def query_income_statement(code: str, page_size: int = 5, page_number: int = 1) 
 # ═══════════════════════════════════════════════════
 
 @mcp.tool()
+@auth_required
 @_rate_limit_decorator
 def query_realtime_price(code: str) -> str:
     """
@@ -717,6 +858,7 @@ UNLOCK_FIELD_CN = {
 
 
 @mcp.tool()
+@auth_required
 @_rate_limit_decorator
 def get_stock_unlock_data(
     market: str = "全部",
@@ -859,6 +1001,7 @@ HOLDER_FIELD_CN = {
 
 
 @mcp.tool()
+@auth_required
 @_rate_limit_decorator
 def get_stock_unlock_holders(
     code: str = "",
@@ -1111,6 +1254,7 @@ def _format_shareholder_record(r: dict) -> str:
 
 
 @mcp.tool()
+@auth_required
 @_rate_limit_decorator
 def query_shareholder_trade(
     stock_codes: str = "",
@@ -1236,6 +1380,7 @@ def _fmt_pe(v: str) -> str:
 
 
 @mcp.tool()
+@auth_required
 @_rate_limit_decorator
 def query_research_report(
     code: str = "",
@@ -1451,6 +1596,7 @@ def _fmt_content(content: str, max_len: int = 200) -> str:
 
 
 @mcp.tool()
+@auth_required
 @_rate_limit_decorator
 def query_institutional_survey(
     code: str = "",
@@ -1624,6 +1770,7 @@ def _fmt_ratio(v) -> str:
 
 
 @mcp.tool()
+@auth_required
 @_rate_limit_decorator
 def query_main_holdings(
     code: str = "",
@@ -1797,6 +1944,7 @@ def _fmt_dividend_date(d) -> str:
 
 
 @mcp.tool()
+@auth_required
 @_rate_limit_decorator
 def query_dividend_history(
     code: str = "",
@@ -1947,6 +2095,7 @@ _RZRQ_REPORT_NAME = "RPTA_WEB_RZRQ_GGMX"
 
 
 @mcp.tool()
+@auth_required
 @_rate_limit_decorator
 def query_margin_trading(
     code: str = "",
@@ -2193,6 +2342,7 @@ _EXEC_REPORT_NAME = "RPT_EXECUTIVE_HOLD_DETAILS"
 
 
 @mcp.tool()
+@auth_required
 @_rate_limit_decorator
 def query_executive_hold_change(
     code: str = "",
@@ -2367,6 +2517,7 @@ _THS_FUNDS_URL = "https://stockpage.10jqka.com.cn/{code}/funds/"
 
 
 @mcp.tool()
+@auth_required
 @_rate_limit_decorator
 def query_money_flow(
     code: str,
@@ -2484,8 +2635,9 @@ def query_money_flow(
 # ═══════════════════════════════════════════════════
 
 @mcp.tool()
+@auth_required
 @_rate_limit_decorator
-def generate_kline_chart(code: str, days: int = 60, output_dir: str = "E:/GuPiao/doc",
+def generate_kline_chart(code: str, days: int = 60, output_dir: str = "./doc",
                          date: str = "") -> str:
     """
     生成指定股票的K线图（日K线 + 均线 + 今日分时走势），保存为PNG图片
@@ -2498,7 +2650,7 @@ def generate_kline_chart(code: str, days: int = 60, output_dir: str = "E:/GuPiao
     Args:
         code:       股票代码，纯数字，如 "601899" 或 "002455"。不要带 .SZ / .SH 后缀
         days:       显示最近多少个交易日（默认60，最大120）
-        output_dir: 图片保存目录（默认 E:/GuPiao/doc）
+        output_dir: 图片保存目录（默认 ./doc）
         date:       指定日期，格式 YYYY-MM-DD 或 YYYYMMDD（可选，默认为今日）
                     e.g. "2026-06-11" 或 "20260611"
     """
@@ -2530,13 +2682,27 @@ def generate_kline_chart(code: str, days: int = 60, output_dir: str = "E:/GuPiao
     today_str = ref_dt.strftime('%Y%m%d')
     today_date = ref_dt.date()
 
-    # ── 中文字体 ──
-    zh_font_path = 'C:\\Windows\\Fonts\\simhei.ttf'
-    if os.path.exists(zh_font_path):
-        fm.fontManager.addfont(zh_font_path)
-        plt.rcParams['font.sans-serif'] = ['SimHei']
-    else:
-        plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei']
+    # ── 中文字体（跨平台） ──
+    _found_font = False
+    for _fp in [
+        r'C:\Windows\Fonts\simhei.ttf',
+        r'C:\Windows\Fonts\msyh.ttc',
+        '/System/Library/Fonts/PingFang.ttc',       # macOS
+        '/System/Library/Fonts/STHeiti Light.ttc',   # macOS
+        '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',  # Linux
+        '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',  # Linux
+    ]:
+        if os.path.exists(_fp):
+            try:
+                fm.fontManager.addfont(_fp)
+                _name = os.path.splitext(os.path.basename(_fp))[0]
+                plt.rcParams['font.sans-serif'] = [_name]
+                _found_font = True
+                break
+            except Exception:
+                continue
+    if not _found_font:
+        plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'WenQuanYi Micro Hei', 'Noto Sans CJK SC', 'PingFang SC']
     plt.rcParams['axes.unicode_minus'] = False
 
     ua = {'User-Agent': 'Mozilla/5.0'}
