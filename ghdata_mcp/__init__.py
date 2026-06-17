@@ -4,9 +4,9 @@
 A股全维度数据引擎 — 16个工具覆盖财务/行情/解禁/增减持/研报/调研/持仓/分红/资金流向/两融/高管变动/K线
 """
 
-__version__ = "1.0.0"
+__version__ = "2.1.0"
 __author__ = "gh-data"
-__description__ = "A股个股深度分析 MCP 数据引擎"
+__description__ = "A股个股深度分析 MCP 数据引擎（纯 HTTP，无需浏览器）"
 
 from .server import mcp
 
